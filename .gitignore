@@ -1,0 +1,5 @@
+autoflushcheck
+autoflushwrite
+*.o
+a.out
+core

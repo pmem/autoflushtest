@@ -1,0 +1,273 @@
+
+SPDX-License-Identifier: BSD-3-Clause
+
+Copyright 2020, Intel Corporation. All rights reserved.
+
+README for autoflush test
+
+This directory contains a test for flush-on-fail systems where
+the CPU caches are considered persistent because dirty lines
+are flushed to pmem automatically on power loss.
+
+Step 0:  Configure persistent memory
+
+	On Linux, the generic utility for configuring persistent memory
+	is ndctl.  There may also be a vendor-specific utility.  For
+	example, Intel's Optane PMem is configured using ipmctl.  Intel's
+	product offers different modes, the one providing the persistent
+	memory programming model is called App Direct.
+
+	To configure PMem in App Direct mode:
+
+---------------------------------------
+# ipmctl create -goal PersistentMemoryType=AppDirect
+---------------------------------------
+
+	A power cycle is required to apply the new goal.
+
+	Here's the sample output from ipmctl showing the capacity that
+	is configured as persistent memory:
+
+---------------------------------------
+# ipmctl show -memoryresources
+ MemoryType   | DDR         | PMemModule   | Total
+==========================================================
+ Volatile     | 512.000 GiB | 0.000 GiB    | 512.000 GiB
+ AppDirect    | -           | 2016.000 GiB | 2016.000 GiB
+ Cache        | 0.000 GiB   | -            | 0.000 GiB
+ Inaccessible | 0.000 GiB   | 11.874 GiB   | 11.874 GiB
+ Physical     | 512.000 GiB | 2027.874 GiB | 2539.874 GiB
+---------------------------------------
+
+	For this test to do anything interesting, there must be persistent
+	memory capacity available as shown above.  Running this test on
+	Memory Mode won't do anything interesting since that is a volatile
+	mode of the Optane product.
+
+	Here is an example using ipmctl to show all the PMem devices:
+
+---------------------------------------
+# ipmctl show -topology
+ DimmID | MemoryType                  | Capacity    | PhysicalID| DeviceLocator
+================================================================================
+ 0x0001 | Logical Non-Volatile Device | 126.688 GiB | 0x0017    | CPU0_DIMM_A2
+ 0x0011 | Logical Non-Volatile Device | 126.688 GiB | 0x0019    | CPU0_DIMM_B2
+ 0x0101 | Logical Non-Volatile Device | 126.688 GiB | 0x001b    | CPU0_DIMM_C2
+ 0x0111 | Logical Non-Volatile Device | 126.688 GiB | 0x001d    | CPU0_DIMM_D2
+ 0x0201 | Logical Non-Volatile Device | 126.688 GiB | 0x001f    | CPU0_DIMM_E2
+ 0x0211 | Logical Non-Volatile Device | 126.688 GiB | 0x0021    | CPU0_DIMM_F2
+ 0x0301 | Logical Non-Volatile Device | 126.688 GiB | 0x0023    | CPU0_DIMM_G2
+ 0x0311 | Logical Non-Volatile Device | 126.688 GiB | 0x0025    | CPU0_DIMM_H2
+ 0x1001 | Logical Non-Volatile Device | 126.688 GiB | 0x0027    | CPU1_DIMM_A2
+ 0x1011 | Logical Non-Volatile Device | 126.688 GiB | 0x0029    | CPU1_DIMM_B2
+ 0x1101 | Logical Non-Volatile Device | 126.688 GiB | 0x002b    | CPU1_DIMM_C2
+ 0x1111 | Logical Non-Volatile Device | 126.688 GiB | 0x002d    | CPU1_DIMM_D2
+ 0x1201 | Logical Non-Volatile Device | 126.688 GiB | 0x002f    | CPU1_DIMM_E2
+ 0x1211 | Logical Non-Volatile Device | 126.688 GiB | 0x0031    | CPU1_DIMM_F2
+ 0x1301 | Logical Non-Volatile Device | 126.688 GiB | 0x0033    | CPU1_DIMM_G2
+ 0x1311 | Logical Non-Volatile Device | 126.688 GiB | 0x0035    | CPU1_DIMM_H2
+ N/A    | DDR4                        | 32.000 GiB  | 0x0016    | CPU0_DIMM_A1
+ N/A    | DDR4                        | 32.000 GiB  | 0x0018    | CPU0_DIMM_B1
+ N/A    | DDR4                        | 32.000 GiB  | 0x001a    | CPU0_DIMM_C1
+ N/A    | DDR4                        | 32.000 GiB  | 0x001c    | CPU0_DIMM_D1
+ N/A    | DDR4                        | 32.000 GiB  | 0x001e    | CPU0_DIMM_E1
+ N/A    | DDR4                        | 32.000 GiB  | 0x0020    | CPU0_DIMM_F1
+ N/A    | DDR4                        | 32.000 GiB  | 0x0022    | CPU0_DIMM_G1
+ N/A    | DDR4                        | 32.000 GiB  | 0x0024    | CPU0_DIMM_H1
+ N/A    | DDR4                        | 32.000 GiB  | 0x0026    | CPU1_DIMM_A1
+ N/A    | DDR4                        | 32.000 GiB  | 0x0028    | CPU1_DIMM_B1
+ N/A    | DDR4                        | 32.000 GiB  | 0x002a    | CPU1_DIMM_C1
+ N/A    | DDR4                        | 32.000 GiB  | 0x002c    | CPU1_DIMM_D1
+ N/A    | DDR4                        | 32.000 GiB  | 0x002e    | CPU1_DIMM_E1
+ N/A    | DDR4                        | 32.000 GiB  | 0x0030    | CPU1_DIMM_F1
+ N/A    | DDR4                        | 32.000 GiB  | 0x0032    | CPU1_DIMM_G1
+ N/A    | DDR4                        | 32.000 GiB  | 0x0034    | CPU1_DIMM_H1
+---------------------------------------
+
+	Note how some of the devices are associated with CPU0 and some with
+	CPU1.  Since Optane PMem is not interleaved across sockets, this
+	capacity should be used as two separate file systems, once associated
+	with socket 0, the other with socket 1.
+
+	The ndctl command can be used to display information on the two
+	interleave sets associated with this capacity:
+
+---------------------------------------
+# ndctl list -R
+[
+  {
+    "dev":"region1",
+    "size":1082331758592,
+    "available_size":0,
+    "max_available_extent":0,
+    "type":"pmem",
+    "iset_id":-3460135463387786992,
+    "persistence_domain":"cpu_cache"
+  },
+  {
+    "dev":"region0",
+    "size":1082331758592,
+    "available_size":0,
+    "max_available_extent":0,
+    "type":"pmem",
+    "iset_id":-2520009043491286768,
+    "persistence_domain":"cpu_cache"
+  }
+]
+---------------------------------------
+
+	Note how the persistence_domain property printed by ndctl is
+	"cpu_cache" which means the CPU caches are considered persistent.
+	If ndctl prints any other value ("memory_controller" is printed
+	for systems without flush-on-fail CPU caches), then this test
+	is not expected to pass.
+
+	The ndctl command should be used to create namespaces on the pmem,
+	as described in the ndctl documentation on pmem.io.  Here's the
+	output of ndctl showing the namespaces have been created:
+
+---------------------------------------
+# ndctl list -N
+[
+  {
+    "dev":"namespace1.0",
+    "mode":"fsdax",
+    "map":"dev",
+    "size":1065418227712,
+    "uuid":"02269034-871e-4bff-84fc-7745a143bcca",
+    "sector_size":512,
+    "align":2097152,
+    "blockdev":"pmem1"
+  },
+  {
+    "dev":"namespace0.0",
+    "mode":"fsdax",
+    "map":"dev",
+    "size":1065418227712,
+    "uuid":"1b98bd13-77bf-46fb-a486-deb79b65a28c",
+    "sector_size":512,
+    "align":2097152,
+    "blockdev":"pmem0"
+  }
+]
+---------------------------------------
+
+	Here's an example oif how to create file systems on those
+	namespaces and mount them for DAX use:
+
+# mkfs -t ext4 /dev/pmem0
+# mkfs -t ext4 /dev/pmem1
+# mount -o dax /dev/pmem0 /pmem0
+# mount -o dax /dev/pmem1 /pmem1
+
+ 	Here is mount and df output:
+
+---------------------------------------
+# mount | grep pmem
+/dev/pmem1 on /pmem1 type ext4 (rw,relatime,dax)
+/dev/pmem0 on /pmem0 type ext4 (rw,relatime,dax)
+
+# df -h | grep pmem
+/dev/pmem0      976G  179M  926G   1% /pmem0
+/dev/pmem1      976G  179M  926G   1% /pmem0
+---------------------------------------
+
+	Be sure that the pre-conditions above are all true before
+	running this test.
+
+Step 1: Build the test
+
+	Use the Makefile to build the test binaries:
+
+---------------------------------------
+# make
+cc -Wall -Werror -std=gnu99   -c -o autoflushwrite.o autoflushwrite.c
+cc -o autoflushwrite -Wall -Werror -std=gnu99 autoflushwrite.o
+cc -Wall -Werror -std=gnu99   -c -o autoflushcheck.o autoflushcheck.c
+cc -o autoflushcheck -Wall -Werror -std=gnu99 autoflushcheck.o
+---------------------------------------
+
+Step 2: Run the test on each socket
+
+	It is recommended to run an instance of autoflushwrite on each
+	socket.  Here's an example showing how to find the CPU IDs
+	associated with each socket, and then passing those same IDs
+	to the taskset command to run the test on that socket.
+
+---------------------------------------
+# lscpu | grep NUMA
+NUMA node(s):          2
+NUMA node0 CPU(s):     0-17,36-53
+NUMA node1 CPU(s):     18-35,54-71
+# taskset --cpu-list 0-17,36-53 ./autoflushwrite /pmem0/testfile &
+# taskset --cpu-list 18-35,54-71 ./autoflushwrite /pmem1/testfile &
+---------------------------------------
+
+	Notice how each command is given a file name on the DAX
+	filesystem associated with its socket.  The file should
+	not exist as the autoflushwrite command will create it.
+	Each time the autoflushwrite command starts up, it will
+	print a line saying the loop is running:
+
+---------------------------------------
+# ./autoflushwrite: stores running, ready for power fail...
+---------------------------------------
+
+	That shows you the test is waiting for you to cut the power
+	to the machine.
+
+	The autoflushwrite command allows you to specify the size of the
+	file to be created.  For example:
+
+---------------------------------------
+# ./autoflushwrite /pmem0/testfile 50
+---------------------------------------
+
+	This will create the testfile with size 50 MB.  The default size,
+	20 MB, is designed to load a non-trivial amount of data into the
+	CPU caches.  Picking a very large number will cause the test to
+	spend much of its time evicting dirty lines to make room for stores.
+	Specifying a size close to the size of the L1, L2, and L3 caches
+	will load the largest amount of data into the cache for the test.
+
+Step 3: Power cycle the machine by removing AC power
+
+	You might also find it useful to test the cold/warm reset and
+	OS shutdown cases as well.
+
+Step 4: Power machine back on and boot it
+
+Step 5: Check the test results
+
+	Mount the DAX filesystems again if necessary.  Confirm they
+	are mounted:
+
+---------------------------------------
+# mount | grep pmem
+/dev/pmem1 on /pmem1 type ext4 (rw,relatime,dax)
+/dev/pmem0 on /pmem0 type ext4 (rw,relatime,dax)
+---------------------------------------
+
+	To check the test results, run the autoflushcheck command
+	on the same file names used with autoflushwrite:
+
+---------------------------------------
+# ./autoflushcheck /pmem0/testfile
+iteration from file header: 0x470b
+           stores to check: 327616
+           starting offset: 0x1000
+             ending offset: 0x13fffc0
+          end of iteration: offset 0x33ac00 (store 52848)
+PASS
+# ./autoflushcheck /pmem1/testfile
+iteration from file header: 0xab5
+           stores to check: 327616
+           starting offset: 0x1000
+             ending offset: 0x13fffc0
+          end of iteration: offset 0x337780 (store 52638)
+PASS
+---------------------------------------
+
+	The important output to look for is the word PASS, as shown
+	above.  The rest of the values are printed for debugging
+	a failed test.
