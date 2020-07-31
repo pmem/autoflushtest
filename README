@@ -24,6 +24,10 @@ Step 0:  Configure persistent memory
 ---------------------------------------
 
 	A power cycle is required to apply the new goal.
+	
+---------------------------------------
+# systemctl reboot
+---------------------------------------
 
 	Here's the sample output from ipmctl showing the capacity that
 	is configured as persistent memory:
@@ -41,7 +45,7 @@ Step 0:  Configure persistent memory
 
 	For this test to do anything interesting, there must be persistent
 	memory capacity available as shown above.  Running this test on
-	Memory Mode won't do anything interesting since that is a volatile
+	Memory Mode won't do anything interesting since it is a volatile
 	mode of the Optane product.
 
 	Here is an example using ipmctl to show all the PMem devices:
@@ -152,7 +156,7 @@ Step 0:  Configure persistent memory
 ]
 ---------------------------------------
 
-	Here's an example oif how to create file systems on those
+	Here's an example of how to create file systems on those
 	namespaces and mount them for DAX use:
 
 # mkfs -t ext4 /dev/pmem0
